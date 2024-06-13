@@ -1,32 +1,49 @@
 <?php
+/**
+ * EverestForms Uninstall
+ *
+ * Uninstalls the plugin deletes user roles, tables, and options.
+ *
+ * @package EverestForms\Uninstaller
+ * @version 1.0.0
+ */
 
-if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
-	exit();
-}
+defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
-function wpcf7_delete_plugin() {
-	global $wpdb;
+global $wpdb;
 
-	delete_option( 'wpcf7' );
+wp_clear_scheduled_hook( 'everest_forms_cleanup_logs' );
+wp_clear_scheduled_hook( 'everest_forms_cleanup_sessions' );
 
-	$posts = get_posts(
-		array(
-			'numberposts' => -1,
-			'post_type' => 'wpcf7_contact_form',
-			'post_status' => 'any',
-		)
-	);
+/*
+ * Only remove ALL  data if EVF_REMOVE_ALL_DATA constant is set to true in user's
+ * wp-config.php. This is to prevent data loss when deleting the plugin from the backend
+ * and to ensure only the site owner can perform this action.
+ */
+if ( ( defined( 'EVF_REMOVE_ALL_DATA' ) && true === EVF_REMOVE_ALL_DATA ) || 'yes' === get_option( 'everest_forms_uninstall_option' ) ) {
+	include_once dirname( __FILE__ ) . '/includes/class-evf-install.php';
 
-	foreach ( $posts as $post ) {
-		wp_delete_post( $post->ID, true );
-	}
+	// Roles + caps.
+	EVF_Install::remove_roles();
 
-	$wpdb->query( sprintf(
-		"DROP TABLE IF EXISTS %s",
-		$wpdb->prefix . 'contact_form_7'
-	) );
-}
+	// Tables.
+	EVF_Install::drop_tables();
 
-if ( ! defined( 'WPCF7_VERSION' ) ) {
-	wpcf7_delete_plugin();
+	// Pages.
+	wp_trash_post( get_option( 'everest_forms_default_form_page_id' ) );
+
+	// Delete options.
+	$wpdb->query( "DELETE FROM $wpdb->options WHERE option_name LIKE 'evf\_%';" );
+	$wpdb->query( "DELETE FROM $wpdb->options WHERE option_name LIKE 'everest_forms\_%';" );
+
+	// Delete usermeta.
+	$wpdb->query( "DELETE FROM $wpdb->usermeta WHERE meta_key LIKE 'evf\_%';" );
+	$wpdb->query( "DELETE FROM $wpdb->usermeta WHERE meta_key LIKE 'everest_forms\_%';" );
+
+	// Delete posts + data.
+	$wpdb->query( "DELETE FROM {$wpdb->posts} WHERE post_type IN ( 'everest_form' );" );
+	$wpdb->query( "DELETE meta FROM {$wpdb->postmeta} meta LEFT JOIN {$wpdb->posts} posts ON posts.ID = meta.post_id WHERE posts.ID IS NULL;" );
+
+	// Clear any cached data that has been removed.
+	wp_cache_flush();
 }
